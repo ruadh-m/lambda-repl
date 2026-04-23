@@ -3,7 +3,12 @@ module Main where
 import Control.Applicative (Alternative, empty, (<|>), many, some)
 import Data.Char (isSpace, isAlpha, isAlphaNum)
 import Data.Functor (void)
+import Data.List (delete, union)
 import System.IO (hSetEncoding, hFlush, stdin, stdout, utf8)
+
+--------------------------------------------------------------------------------
+-- AST DECLARATION
+--------------------------------------------------------------------------------
 
 -- The abstract syntax tree for the untyped lambda calculus.
 data Expr
@@ -27,7 +32,45 @@ pretty (App e1 e2) = left e1 ++ " " ++ right e2
                 Var _ -> pretty e
                 _     -> "(" ++ pretty e ++ ")"
 
--- A parser is a function from a string to a list of possible parses.
+--------------------------------------------------------------------------------
+-- SUBSTITUTION
+--------------------------------------------------------------------------------
+
+-- The free variables of an expression.
+freeVars :: Expr -> [String]
+freeVars (Var x)     = [x]
+freeVars (Lam x e)   = delete x (freeVars e)
+freeVars (App e1 e2) = freeVars e1 `union` freeVars e2
+
+-- Generate a variable name not present in the given list.
+-- We append primes (') until we find an unused name.
+fresh :: String -> [String] -> String
+fresh x used
+  | x `notElem` used = x
+  | otherwise        = fresh (x ++ "'") used
+
+-- Capture-avoiding substitution:  body[e/x]
+-- Replace free occurrences of x in body with e.
+subst :: String -> Expr -> Expr -> Expr
+subst x e (Var y)
+  | x == y    = e
+  | otherwise = Var y
+
+subst x e (Lam y body)
+  | x == y    = Lam y body
+  | y `elem` freeVars e =
+      let y' = fresh y (freeVars e `union` freeVars body `union` [x])
+      in Lam y' (subst x e (subst y (Var y') body))
+  | otherwise =
+      Lam y (subst x e body)
+
+subst x e (App e1 e2) =
+  App (subst x e e1) (subst x e e2)                
+
+--------------------------------------------------------------------------------
+-- PARSING
+--------------------------------------------------------------------------------
+
 -- An empty list means failure. A singleton list is the clean, unambiguous
 -- result we aim for. Multiple results mean ambiguity.
 newtype Parser a = Parser { runParser :: String -> [(a, String)] }
@@ -128,7 +171,7 @@ app = chainl1 atom (return App)
 
 -- Top-level expression: application chain or a lone atom/abstraction.
 expr :: Parser Expr
-expr = app <|> atom
+expr = app
 
 -- End-of-file parser: succeeds only if the entire input is consumed.
 eof :: Parser ()
@@ -151,10 +194,44 @@ normalizeLambda = map $ \c -> case c of
   'Λ' -> '\\'
   _   -> c
 
+--------------------------------------------------------------------------------
+-- MAIN
+--------------------------------------------------------------------------------
+
 main :: IO ()
 main = do
   hSetEncoding stdin utf8
   hSetEncoding stdout utf8
+
+  putStrLn "SUBSTITUTION TESTING"
+  putStrLn ""
+
+  -- Example 1: Simple substitution (no renaming needed)
+  let ex1   = Lam "x" (App (Var "x") (Var "y"))
+  let sub1  = App (Var "z") (Var "w")
+  putStrLn $ "Expression:  " ++ pretty ex1
+  putStrLn $ "Substitute:  " ++ pretty sub1
+  putStrLn $ "For var:     x"
+  putStrLn $ "Result:      " ++ pretty (subst "x" sub1 ex1)
+  putStrLn ""
+
+  -- Example 2: Capture avoidance (z is free in sub1, so it must be renamed)
+  let ex2 = Lam "z" (App (Var "x") (Var "z"))
+  putStrLn $ "Expression:  " ++ pretty ex2
+  putStrLn $ "Substitute:  " ++ pretty sub1
+  putStrLn $ "For var:     x"
+  putStrLn $ "Result:      " ++ pretty (subst "x" sub1 ex2)
+  putStrLn ""
+
+  -- Example 3: Variable does not occur free
+  let ex3 = Lam "x" (App (Var "x") (Var "z"))
+  putStrLn $ "Expression:  " ++ pretty ex3
+  putStrLn $ "Substitute:  " ++ pretty sub1
+  putStrLn $ "For var:     y"
+  putStrLn $ "Result:      " ++ pretty (subst "y" sub1 ex3)
+  putStrLn ""
+
+  -- REPL
   putStrLn "Untyped Lambda Calculus -- Parser Test"
   putStrLn "Type an expression (e.g. \\x.x x) or 'quit' to exit."
   loop
