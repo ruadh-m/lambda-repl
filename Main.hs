@@ -1,13 +1,13 @@
 module Main where
 
-import Control.Applicative (Alternative, empty, (<|>), many, some)
+import Control.Applicative (Alternative, empty, (<|>), many)
 import Data.Char (isSpace, isAlpha, isAlphaNum)
 import Data.Functor (void)
 import Data.List (delete, union)
 import System.IO (hSetEncoding, hFlush, stdin, stdout, utf8)
 
 --------------------------------------------------------------------------------
--- AST DECLARATION
+-- AST
 --------------------------------------------------------------------------------
 
 -- The abstract syntax tree for the untyped lambda calculus.
@@ -65,7 +65,41 @@ subst x e (Lam y body)
       Lam y (subst x e body)
 
 subst x e (App e1 e2) =
-  App (subst x e e1) (subst x e e2)                
+  App (subst x e e1) (subst x e e2)
+
+--------------------------------------------------------------------------------
+-- EVALUATION
+--------------------------------------------------------------------------------
+
+-- One step of normal-order reduction.
+-- Returns Nothing if the term is in normal form.
+reduce1 :: Expr -> Maybe Expr
+reduce1 (Var _) = Nothing
+
+reduce1 (Lam x e) = Lam x <$> reduce1 e
+
+reduce1 (App (Lam x body) arg) =
+  -- Leftmost-outermost redex found
+  Just (subst x arg body)
+
+reduce1 (App e1 e2) =
+  -- Normal-order: reduce left side first
+  case reduce1 e1 of
+    Just e1' -> Just (App e1' e2)
+    Nothing  -> App e1 <$> reduce1 e2
+
+-- Normalize a term using normal-order reduction.
+-- The Int argument is a step limit to prevent infinite loops.
+-- Returns the final term and the number of steps actually taken.
+normalize :: Int -> Expr -> (Expr, Int)
+normalize limit e = go 0 e
+  where
+    go steps expr
+      | steps >= limit = (expr, steps)
+      | otherwise      =
+          case reduce1 expr of
+            Nothing    -> (expr, steps)
+            Just expr' -> go (steps + 1) expr'
 
 --------------------------------------------------------------------------------
 -- PARSING
@@ -133,7 +167,7 @@ symbol s = lexeme (string s)
 ident :: Parser String
 ident = lexeme $ do
   c  <- sat isAlpha
-  cs <- many (sat isAlphaNum)
+  cs <- many (sat (\c -> isAlphaNum c || c == '\''))
   return (c:cs)
 
 -- Parse a variable.
@@ -202,38 +236,11 @@ main :: IO ()
 main = do
   hSetEncoding stdin utf8
   hSetEncoding stdout utf8
-
-  putStrLn "SUBSTITUTION TESTING"
-  putStrLn ""
-
-  -- Example 1: Simple substitution (no renaming needed)
-  let ex1   = Lam "x" (App (Var "x") (Var "y"))
-  let sub1  = App (Var "z") (Var "w")
-  putStrLn $ "Expression:  " ++ pretty ex1
-  putStrLn $ "Substitute:  " ++ pretty sub1
-  putStrLn $ "For var:     x"
-  putStrLn $ "Result:      " ++ pretty (subst "x" sub1 ex1)
-  putStrLn ""
-
-  -- Example 2: Capture avoidance (z is free in sub1, so it must be renamed)
-  let ex2 = Lam "z" (App (Var "x") (Var "z"))
-  putStrLn $ "Expression:  " ++ pretty ex2
-  putStrLn $ "Substitute:  " ++ pretty sub1
-  putStrLn $ "For var:     x"
-  putStrLn $ "Result:      " ++ pretty (subst "x" sub1 ex2)
-  putStrLn ""
-
-  -- Example 3: Variable does not occur free
-  let ex3 = Lam "x" (App (Var "x") (Var "z"))
-  putStrLn $ "Expression:  " ++ pretty ex3
-  putStrLn $ "Substitute:  " ++ pretty sub1
-  putStrLn $ "For var:     y"
-  putStrLn $ "Result:      " ++ pretty (subst "y" sub1 ex3)
-  putStrLn ""
-
+  
   -- REPL
-  putStrLn "Untyped Lambda Calculus -- Parser Test"
+  putStrLn "Untyped Lambda Calculus -- REPL"
   putStrLn "Type an expression (e.g. \\x.x x) or 'quit' to exit."
+
   loop
   where
     loop = do
@@ -245,6 +252,8 @@ main = do
           case parseExpr line of
             Left err -> putStrLn $ "Error: " ++ err
             Right e  -> do
-              putStrLn $ "AST:    " ++ show e
-              putStrLn $ "Pretty: " ++ pretty e
+              let (e', steps) = normalize 1000 e
+              putStrLn $ "Parsed: " ++ pretty e
+              putStrLn $ "Steps:  " ++ show steps
+              putStrLn $ "Result: " ++ pretty e'
           loop
