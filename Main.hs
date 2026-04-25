@@ -229,31 +229,79 @@ normalizeLambda = map $ \c -> case c of
   _   -> c
 
 --------------------------------------------------------------------------------
--- MAIN
+-- REPL STATE & META-COMMANDS
+--------------------------------------------------------------------------------
+
+data ReplState = ReplState { stepLimit :: Int }
+
+helpText :: String
+helpText = unlines
+  [ "Commands:"
+  , "  <expr>        Evaluate a lambda calculus expression"
+  , "  :quit, :q     Exit the REPL"
+  , "  :steps <n>    Set the maximum reduction steps (default: 1000)"
+  , "  :help, :h     Show this message"
+  , ""
+  , "Examples:"
+  , "  \\x.x"
+  , "  (\\x.x) y"
+  , "  (\\x.\\y.x) a b"
+  ]
+
+--------------------------------------------------------------------------------
+-- Main
 --------------------------------------------------------------------------------
 
 main :: IO ()
 main = do
   hSetEncoding stdin utf8
   hSetEncoding stdout utf8
-  
-  -- REPL
-  putStrLn "Untyped Lambda Calculus -- REPL"
-  putStrLn "Type an expression (e.g. \\x.x x) or 'quit' to exit."
+  putStrLn "Untyped Lambda Calculus REPL"
+  putStrLn "Type :help for usage information."
+  putStrLn ""
+  loop (ReplState 1000)
 
-  loop
-  where
-    loop = do
-      putStr "λ> " >> hFlush stdout
-      line <- normalizeLambda <$> getLine
-      case line of
-        "quit" -> putStrLn "Goodbye."
-        _      -> do
-          case parseExpr line of
-            Left err -> putStrLn $ "Error: " ++ err
-            Right e  -> do
-              let (e', steps) = normalize 1000 e
-              putStrLn $ "Parsed: " ++ pretty e
-              putStrLn $ "Steps:  " ++ show steps
-              putStrLn $ "Result: " ++ pretty e'
-          loop
+loop :: ReplState -> IO ()
+loop state = do
+  putStr "λ> " >> hFlush stdout
+  line <- getLine
+  case filter (not . isSpace) line of
+    "" -> loop state
+
+    ':':'q':_ -> putStrLn "Goodbye."
+
+    ':':'s':'t':'e':'p':'s':rest ->
+      case reads rest of
+        [(n, "")] | n > 0 -> do
+          putStrLn $ "Step limit set to " ++ show n
+          loop (ReplState n)
+        _ -> do
+          putStrLn "Usage: :steps <positive-integer>"
+          loop state
+
+    ':':'h':_ -> do
+      putStr helpText
+      loop state
+
+    _ -> do
+      let input = normalizeLambda line
+      case parseExpr input of
+        Left err -> do
+          putStrLn $ "Error: " ++ err
+          loop state
+
+        Right e -> do
+          let (e', steps) = normalize (stepLimit state) e
+          let inNF = case reduce1 e' of Nothing -> True; Just _ -> False
+
+          putStrLn $ "Parsed: " ++ pretty e
+          putStrLn $ "Result: " ++ pretty e'
+
+          if steps == 0
+            then putStrLn "Already in normal form."
+            else if inNF
+              then putStrLn $ "Normalized in " ++ show steps ++ " step(s)."
+              else putStrLn $ "Step limit (" ++ show steps ++ ") reached — not in normal form."
+
+          putStrLn ""
+          loop state
