@@ -6,9 +6,7 @@ import Data.Functor (void)
 import Data.List (delete, union)
 import System.IO (hSetEncoding, hFlush, stdin, stdout, utf8)
 
---------------------------------------------------------------------------------
 -- AST
---------------------------------------------------------------------------------
 
 -- The abstract syntax tree for the untyped lambda calculus.
 data Expr
@@ -32,9 +30,7 @@ pretty (App e1 e2) = left e1 ++ " " ++ right e2
                 Var _ -> pretty e
                 _     -> "(" ++ pretty e ++ ")"
 
---------------------------------------------------------------------------------
 -- SUBSTITUTION
---------------------------------------------------------------------------------
 
 -- The free variables of an expression.
 freeVars :: Expr -> [String]
@@ -43,7 +39,7 @@ freeVars (Lam x e)   = delete x (freeVars e)
 freeVars (App e1 e2) = freeVars e1 `union` freeVars e2
 
 -- Generate a variable name not present in the given list.
--- We append primes (') until we find an unused name.
+-- Append primes (') until an unused name is found.
 fresh :: String -> [String] -> String
 fresh x used
   | x `notElem` used = x
@@ -67,9 +63,7 @@ subst x e (Lam y body)
 subst x e (App e1 e2) =
   App (subst x e e1) (subst x e e2)
 
---------------------------------------------------------------------------------
 -- EVALUATION
---------------------------------------------------------------------------------
 
 -- One step of normal-order reduction.
 -- Returns Nothing if the term is in normal form.
@@ -101,9 +95,7 @@ normalize limit e = go 0 e
             Nothing    -> (expr, steps)
             Just expr' -> go (steps + 1) expr'
 
---------------------------------------------------------------------------------
 -- PARSING
---------------------------------------------------------------------------------
 
 -- An empty list means failure. A singleton list is the clean, unambiguous
 -- result we aim for. Multiple results mean ambiguity.
@@ -228,9 +220,7 @@ normalizeLambda = map $ \c -> case c of
   'Λ' -> '\\'
   _   -> c
 
---------------------------------------------------------------------------------
 -- REPL STATE & META-COMMANDS
---------------------------------------------------------------------------------
 
 data ReplState = ReplState { stepLimit :: Int }
 
@@ -248,9 +238,7 @@ helpText = unlines
   , "  (\\x.\\y.x) a b"
   ]
 
---------------------------------------------------------------------------------
--- Main
---------------------------------------------------------------------------------
+-- MAIN
 
 main :: IO ()
 main = do
